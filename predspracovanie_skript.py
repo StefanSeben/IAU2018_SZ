@@ -266,7 +266,7 @@ def preprocess(filepath):
     knr = train_data.copy()
 
     i = 0
-    while knr[knr.columns[knr.dtypes == np.object]].isnull().values.any() and i < 49:
+    while knr[knr.columns[knr.dtypes == np.object]].isnull().values.any() and i < int(math.sqrt(X.shape[0])) - 1:
         allNumeric = pd.get_dummies(knr, columns=knr.columns[knr.dtypes == np.object], dummy_na=True)
 
         NanColumns = []
@@ -288,6 +288,7 @@ def preprocess(filepath):
                     else:
                         nancol = col2
 
+            X = X.drop(valcols, axis=1)
             if (allNumeric[nancol] == 0).all():
                 continue
 
@@ -298,13 +299,14 @@ def preprocess(filepath):
                 
                 scaler = StandardScaler()
                 scaler.fit(X)
+                
                 X = pd.DataFrame(scaler.transform(X), columns=X.columns)
                 
                 X_train, X_test, y_train, y_test = sklearn.model_selection.train_test_split(X, y, test_size=0.2)
-                clf = neighbors.KNeighborsClassifier(50 - i, weights='uniform')
+                clf = neighbors.KNeighborsClassifier(int(math.sqrt(X.shape[0])) - i, weights='uniform')
                 clf.fit(X_train, y_train)
 
-                Q = allNumeric[allNumeric[nancol] == 1].drop(NanColumns, axis=1)
+                Q = allNumeric[allNumeric[nancol] == 1].drop(NanColumns, axis=1).drop(valcols, axis=1)
                 Q = pd.DataFrame(scaler.transform(Q), columns=Q.columns)
                 
                 y = clf.predict(Q)
@@ -319,8 +321,80 @@ def preprocess(filepath):
                         
         i = i + 1
 
+    
     #19 nahradzovanie KNN
-    print('19 hotovo')
+    print('19 druhe KNN')
+    
+    translator = {}
+    translatorRev = {}
+
+    for col in train_data.columns[train_data.dtypes == np.object]:
+        translator[col] = {}
+        translatorRev[col] = {}
+        un = train_data[col].unique()
+        for i in range(len(un)):
+            translator[col][un[i]] = i
+            translatorRev[col][i] = un[i]
+
+    def translateToNumeric(data, attr):
+        trans = data[attr].copy()
+        for i in range(len(trans)):
+            if (pd.notna(trans[i])):
+                trans[i] = translator[attr][trans[i]]
+            
+        return trans
+
+    def translateFromNumeric(val, attr):
+        return translatorRev[attr][val]
+
+    allNumeric = train_data.copy()
+    for col in train_data.columns[train_data.dtypes == np.object]:
+        allNumeric[col] = translateToNumeric(train_data, col)
+
+    from sklearn import neighbors
+
+    for col in train_data.columns[train_data.dtypes == np.object]:
+        X = allNumeric.copy()
+        
+        NanColumns = []
+        for col2 in X.columns:
+             if X[pd.isna(X[col2])].shape[0] > 0 and col != col2:
+                NanColumns.append(col2)
+        
+        X = X.dropna()
+        X = X.drop(NanColumns, axis=1)
+        
+        y = X[col].copy().astype('int')
+        X = X.drop(col, axis=1)
+         
+        X_train, X_test, y_train, y_test = sklearn.model_selection.train_test_split(X, y, test_size=0.2)
+             
+        clf = neighbors.KNeighborsClassifier(20, weights='uniform')
+        clf.fit(X_train, y_train)
+        print("Presnosť pre", col, ":", clf.score(X_test, y_test))
+             
+        clf.fit(X, y)
+            
+        notknown = allNumeric.copy()
+        notknown = notknown[pd.isna(notknown[col])]
+        if (notknown.shape[0] == 0):
+                continue
+          
+        X = notknown.drop(NanColumns, axis=1)
+        y = notknown[col]
+        X = X.drop(col, axis=1)
+                       
+        y = clf.predict(X)
+             
+        #postupne dopĺňame neznáme hodnoty hodnotami odhadovanými lineárnou regresiou
+        i2 = 0
+        for i in range(knr.shape[0]):
+            if (pd.isna(knr.loc[i, col])):
+                knr.loc[i, col] = translateFromNumeric(y[i2], col)
+                i2 = i2 + 1
+
+    #20 koniec
+    print('20 hotovo')
     train_data = knr
 
     return train_data
