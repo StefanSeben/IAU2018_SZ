@@ -32,14 +32,17 @@ def replaceOutliersD(data, attr, thrshl, new):
 
 def preprocess(filepath):
     #1 nacitanie
+    print('1 nacitanie')
     train_data = pd.DataFrame()
     train_data = pd.read_csv(filepath)
 
     #2 nahradenie indexu
+    print('2 nahradenie indexu')
     train_data = train_data.set_index('Unnamed: 0')
     train_data.index.names = ['id']
 
     #3 rozvinutie stplcov
+    print('3 rozvinutie stplcov')
     import json
     raw = train_data.loc[1, 'medical_info']
     raw = raw.replace("'", '"')
@@ -61,21 +64,28 @@ def preprocess(filepath):
     train_data = train_data.drop(columns=['medical_info'])
 
     #4 ciselne FTI
+    print('4 ciselne FTI')
     train_data['FTI'] = pd.to_numeric(train_data['FTI'], errors='coerce')
 
     #5 ciselne TBG
+    print('5 ciselne TBG')
     train_data['TBG'] = pd.to_numeric(train_data['TBG'], errors='coerce')
+    
+    train_data['TT4'] = pd.to_numeric(train_data['TT4'], errors='coerce')
 
     #6 rozvinutie vysledku testu
+    print('6 rozvinutie vysledku testu')
     for i in range(train_data.shape[0]):
         train_data.loc[i, 'test'], train_data.loc[i, 'testID'] = str(train_data['class'][i]).split(".|")
 
     train_data = train_data.drop(columns=['class'])
 
     #7 zahodenie nepotrebnych stlpcov
+    print('7 zahodenie nepotrebnych stlpcov')
     train_data = train_data.drop(['TBG measured', 'TBG', 'education', 'testID'], axis=1)
 
     #8 rozvinutie datumu narodenia
+    print('8 rozvinutie datumu narodenia')
     train_data['birth_year'] = np.nan
     train_data['birth_month'] = np.nan
     
@@ -99,7 +109,13 @@ def preprocess(filepath):
         train_data.loc[i, 'birth_year'] = date[0]
         train_data.loc[i, 'birth_month'] = date[1]
 
+    train_data['birth_month'] = train_data['birth_month'].astype(str)
+    for i in range(train_data.shape[0]):
+        if train_data.loc[i,'birth_month'] == 'nan':
+            train_data.loc[i,'birth_month'] = '?'
+            
     #9 zlucenie hodnot
+    print('9 zlucenie hodnot')
     for i in range(train_data.shape[0]):
         if train_data.loc[i, 'on thyroxine'] == 'FALSE' or train_data.loc[i, 'on thyroxine'] == 'F':
             train_data.loc[i, 'on thyroxine'] = 'f'
@@ -108,19 +124,21 @@ def preprocess(filepath):
         
         for col in train_data.columns[train_data.dtypes == np.object]:
             if pd.notna(train_data.loc[i, col]):
-                train_data.loc[i, col] = train_data.loc[i, col].lower().strip()
-
+                train_data.loc[i, col] = train_data.loc[i, col].lower().strip().replace("-", "_")
         
     #10 nahrada za box-cox
+    print('10 nahrada za box-cox')
     replaceWithBC(train_data, 'TSH')
     replaceWithBC(train_data, 'fnlwgt')
 
     #11 odstranenie odlahlych hodnot
+    print('11 odstranenie odlahlych hodnot')
     replaceOutliers(train_data, 'fnlwgt', lambda a: a > 720, np.percentile(train_data['fnlwgt'], 95))
     replaceOutliers(train_data, 'hours-per-week', lambda a: a > 95, np.percentile(train_data['hours-per-week'], 95))
     replaceOutliersD(train_data, 'age', lambda a: a > 100, lambda a: 2017 - a.birth_year)
     
     #12 zlucenie education-num
+    print('12 zlucenie education-num')
     for i in range(len(train_data['education-num'])):
         if train_data.loc[i, 'education-num'] < 0:
             train_data.loc[i, 'education-num'] *= -1
@@ -128,6 +146,7 @@ def preprocess(filepath):
             train_data.loc[i, 'education-num'] = train_data.loc[i, 'education-num']/100
         
     #13 kategorizacia kapitalu
+    print('13 kategorizacia kapitalu')
     train_data['yield'] = np.nan
     for i in range(train_data.shape[0]):
         yld = train_data.loc[i,'capital-gain'] - train_data.loc[i, 'capital-loss']
@@ -141,6 +160,7 @@ def preprocess(filepath):
     train_data = train_data.drop(['capital-gain', 'capital-loss'], axis=1)
 
     #14 nahradzovanie priemerom
+    print('14 nahradzovanie priemerom')
     import math
 
     mean_med = train_data.copy()
@@ -160,9 +180,9 @@ def preprocess(filepath):
 
     for i in range(mean_med.shape[0]):
         mean_med.loc[i, 'birth_year'] = math.ceil(mean_med.loc[i, 'birth_year'])
-        mean_med.loc[i, 'birth_month'] = math.ceil(mean_med.loc[i, 'birth_month'])
-
+       
     #15 nahradzovanie regresiou
+    print('15 nahradzovanie regresiou')
     import sklearn.linear_model
     import sklearn.model_selection
 
@@ -217,9 +237,9 @@ def preprocess(filepath):
 
     for i in range(mean_med.shape[0]):
         linreg.loc[i, 'birth_year'] = math.ceil(linreg.loc[i, 'birth_year'])
-        linreg.loc[i, 'birth_month'] = math.ceil(linreg.loc[i, 'birth_month'])
 
     #16 nahradenie priemerom/medianom a regresiou
+    print('16 nahradenie priemerom/medianom a regresiou')
     raw_data = train_data.copy()
 
     for col in train_data.columns:
@@ -230,84 +250,77 @@ def preprocess(filepath):
                 train_data[col] = mean_med[col]
 
     #17 nahradenie ? za NaN
+    print('17 nahradenie ? za NaN')
     for col in train_data.columns[train_data.dtypes == np.object]:
         for i in range(train_data.shape[0]):
             if train_data.loc[i, col] == '?':
                 train_data.loc[i, col] = np.nan
 
-    #18 preklad kategorickych do ciselnych
-    translator = {}
-    translatorRev = {}
-
-    for col in train_data.columns[train_data.dtypes == np.object]:
-        translator[col] = {}
-        translatorRev[col] = {}
-        un = train_data[col].unique()
-        for i in range(len(un)):
-            translator[col][un[i]] = i
-            translatorRev[col][i] = un[i]
-
-    def translateToNumeric(data, attr):
-        trans = data[attr].copy()
-        for i in range(len(trans)):
-            if (pd.notna(trans[i])):
-                trans[i] = translator[attr][trans[i]]
-        
-        return trans
-
-    def translateFromNumeric(val, attr):
-        return translatorRev[attr][val]
-
-    allNumeric = train_data.copy()
-    for col in train_data.columns[train_data.dtypes == np.object]:
-        allNumeric[col] = translateToNumeric(train_data, col)
-
-    #19 nahradzovanie KNN
+    import random
+    
+    #18 nahradzovanie KNN
+    print('18 nahradzovanie KNN')
     from sklearn import neighbors
+    from sklearn.preprocessing import StandardScaler
 
     knr = train_data.copy()
 
-    for col in train_data.columns[train_data.dtypes == np.object]:
-        X = allNumeric.copy()
-        
-        NanColumns = []
-        for col2 in X.columns:
-            if X[pd.isna(X[col2])].shape[0] > 0 and col != col2:
-                NanColumns.append(col2)
-                
-        X = X.dropna()
-        X = X.drop(NanColumns, axis=1)
-                
-        y = X[col].copy().astype('int')
-        X = X.drop(col, axis=1)
-        
-        X_train, X_test, y_train, y_test = sklearn.model_selection.train_test_split(X, y, test_size=0.2)
-            
-        clf = neighbors.KNeighborsClassifier(20, weights='uniform')
-        clf.fit(X_train, y_train)
-        print("Presnosť pre", col, ":", clf.score(X_test, y_test))
-            
-        clf.fit(X, y)
-            
-        notknown = allNumeric.copy()
-        notknown = notknown[pd.isna(notknown[col])]
-        if (notknown.shape[0] == 0):
-                continue
-        
-        
-        X = notknown.drop(NanColumns, axis=1)
-        y = notknown[col]
-        X = X.drop(col, axis=1)
-                    
-        y = clf.predict(X)
-            
-        #postupne dopĺňame neznáme hodnoty hodnotami odhadovanými lineárnou regresiou
-        i2 = 0
-        for i in range(knr.shape[0]):
-            if (pd.isna(knr.loc[i, col])):
-                knr.loc[i, col] = translateFromNumeric(y[i2], col)
-                i2 = i2 + 1
+    i = 0
+    while knr[knr.columns[knr.dtypes == np.object]].isnull().values.any() and i < 49:
+        allNumeric = pd.get_dummies(knr, columns=knr.columns[knr.dtypes == np.object], dummy_na=True)
 
+        NanColumns = []
+        for col in allNumeric.columns[11:]:
+            if '_nan' in col:
+                NanColumns.append(col)
+
+        for col in train_data.columns[train_data.dtypes == np.object]:
+
+            X = allNumeric.copy()
+            X = X.drop(NanColumns, axis=1)
+            
+            valcols = []
+            nancol = ''
+            for col2 in allNumeric.columns[11:]:
+                if col2[:len(col)] == col:
+                    if '_nan' not in col2:
+                        valcols.append(col2)
+                    else:
+                        nancol = col2
+
+            if (allNumeric[nancol] == 0).all():
+                continue
+
+            print(col, "Ostava NaN: ", allNumeric[allNumeric[nancol] == 1].shape[0])
+
+            for currcol in valcols:
+                y = allNumeric[currcol].copy()
+                
+                scaler = StandardScaler()
+                scaler.fit(X)
+                X = pd.DataFrame(scaler.transform(X), columns=X.columns)
+                
+                X_train, X_test, y_train, y_test = sklearn.model_selection.train_test_split(X, y, test_size=0.2)
+                clf = neighbors.KNeighborsClassifier(50 - i, weights='uniform')
+                clf.fit(X_train, y_train)
+
+                Q = allNumeric[allNumeric[nancol] == 1].drop(NanColumns, axis=1)
+                Q = pd.DataFrame(scaler.transform(Q), columns=Q.columns)
+                
+                y = clf.predict(Q)
+                
+                #postupne dopĺňame neznáme hodnoty hodnotami odhadovanými podla najblizsich susedov
+                i2 = 0
+                for i3 in range(knr.shape[0]):
+                    if (pd.isna(knr.loc[i3, col])):
+                        if y[i2] != 0:
+                            knr.loc[i3, col] = currcol[len(col)+1:]
+                        i2 = i2 + 1
+                        
+        i = i + 1
+
+    #19 nahradzovanie KNN
+    print('19 hotovo')
     train_data = knr
 
     return train_data
